@@ -35,8 +35,7 @@ jobs:
       - name: 构建QPKG产物和配置
         run: |
           set -e
-          mkdir -p sources
-          cat > sources/build_conf <<EOF
+          cat > build_conf <<EOF
           VERSION=${{ github.event.inputs.version }}
           ARCHS=${{ github.event.inputs.arch }}
           EDITION=${{ github.event.inputs.edition }}
@@ -47,16 +46,26 @@ jobs:
       - name: 处理分支/Tag/提交
         run: |
           set -e
-          ver=$(grep -E '^VERSION=' sources/build_conf | head -n 1 | cut -d= -f2-)
+          ver=$(grep -E '^VERSION=' build_conf | head -n 1 | cut -d= -f2-)
           branch="release/$ver"
           tag="$ver"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git config user.name "github-actions[bot]"
+          tmp_dir=$(mktemp -d)
+          mv out "$tmp_dir/"
+          mv build_conf "$tmp_dir/"
+          mv build.sh "$tmp_dir/"
+          mv qpkg-template "$tmp_dir/"
+          mv build_args "$tmp_dir/"
           git checkout --orphan $branch
           git rm -rf .
           git clean -fdx
-          mv release_batch/* .
-          git add .
+          mv "$tmp_dir/qpkg-template" ./qpkg-template
+          mv "$tmp_dir/build_args" ./build_args
+          mv "$tmp_dir/build.sh" ./build.sh
+          mv "$tmp_dir/build_conf" ./build_conf
+          mv "$tmp_dir/out" ./out
+          git add qpkg-template build_args build.sh
           git commit -m "release $ver QPKG and config"
           git push origin $branch --force
           git tag -d $tag || true
@@ -67,7 +76,7 @@ jobs:
       - name: 发布Release并上传QPKG产物
         run: |
           set -e
-          ver=$(grep -E '^VERSION=' sources/build_conf | head -n 1 | cut -d= -f2-)
+          ver=$(grep -E '^VERSION=' build_conf | head -n 1 | cut -d= -f2-)
           repo="${{ github.repository }}"
           api="https://api.github.com/repos/$repo"
           auth_header="Authorization: token $GH_TOKEN"
@@ -82,7 +91,7 @@ jobs:
             echo "创建/获取 Release 失败"
             exit 1
           fi
-          for f in qpkg-output/*.qpkg.tar.gz; do
+          for f in out/qpkg-output/*.qpkg.tar.gz; do
             name=$(basename "$f")
             wget -q --header="$auth_header" --header="Content-Type: application/gzip" \
               --method=POST --body-file="$f" \
