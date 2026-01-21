@@ -75,7 +75,7 @@ jobs:
               fi
               gh release download "$ver" -R openlistteam/openlist -p "$pkg"
               mv "$pkg" binpkg/
-              grep "$pkg" $mdfile | md5sum -c | grep OK
+              grep "$pkg" $mdfile | md5sum -c --quiet --status || (md5sum "binpkg/$pkg"; exit 1)
             done
           done
 
