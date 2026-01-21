@@ -1,0 +1,158 @@
+name: Build OpenList QPKG with Tag and Release and Multi-Resolution Logo
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "OpenList release版本号，比如 v1.14.1，latest自动选新"
+        required: false
+        default: "latest"
+      edition:
+        description: "版本：normal/lite，留空则全打"
+        required: false
+        default: ""
+      arch:
+        description: "架构如arm64, amd64等，留空则全打"
+        required: false
+        default: ""
+
+permissions:
+  actions: write
+  contents: write
+
+env:
+  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+jobs:
+  build_and_tag:
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout主分支
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 安装gh
+        run: sudo apt-get update -y && sudo apt-get install -y gh
+
+      - name: 获取OpenList版本
+        id: getver
+        run: |
+          ver="${{ github.event.inputs.version }}"
+          if [ "$ver" = "" ] || [ "$ver" = "latest" ]; then
+            ver=$(gh api repos/openlistteam/openlist/releases/latest --jq .tag_name)
+          fi
+          echo "ver=$ver" >> $GITHUB_OUTPUT
+
+      - name: 拉取多分辨率logo文件
+        run: |
+          mkdir -p qpkg-template/logo
+          wget -O qpkg-template/logo/openlist_512.png https://github.com/OpenListTeam/OpenList-Resource/raw/main/logo/openlist_512.png || true
+          wget -O qpkg-template/logo/openlist_256.png https://github.com/OpenListTeam/OpenList-Resource/raw/main/logo/openlist_256.png || true
+          wget -O qpkg-template/logo/openlist_128.png https://github.com/OpenListTeam/OpenList-Resource/raw/main/logo/openlist_128.png || true
+
+      - name: 下载Release文件
+        run: |
+          set -e
+          ver="${{ steps.getver.outputs.ver }}"
+          ARCHS="${{ github.event.inputs.arch }}"
+          EDITION="${{ github.event.inputs.edition }}"
+          all_arch="amd64 arm64 arm-5 arm-6 arm-7 mips mipsle mips64 mips64le s390x riscv64 loong64 loong64-abi1.0 ppc64le 386"
+          edit_arr="normal lite"
+          [ -n "$EDITION" ] && edit_arr="$EDITION"
+          [ -n "$ARCHS" ] && all_arch="$ARCHS"
+          gh release download "$ver" -R openlistteam/openlist -p "md5.txt"
+          gh release download "$ver" -R openlistteam/openlist -p "md5-lite.txt"
+          mkdir -p binpkg
+          for arch in $all_arch; do
+            for edit in $edit_arr; do
+              if [ "$edit" = "normal" ]; then
+                pkg="openlist-linux-${arch}.tar.gz"
+                mdfile="md5.txt"
+              else
+                pkg="openlist-linux-${arch}-lite.tar.gz"
+                mdfile="md5-lite.txt"
+              fi
+              gh release download "$ver" -R openlistteam/openlist -p "$pkg"
+              mv "$pkg" binpkg/
+              grep "$pkg" $mdfile | md5sum -c | grep OK
+            done
+          done
+
+      - name: 生成QPKG产物和配置
+        run: |
+          set -e
+          ver="${{ steps.getver.outputs.ver }}"
+          all_arch="amd64 arm64 arm-5 arm-6 arm-7 mips mipsle mips64 mips64le s390x riscv64 loong64 loong64-abi1.0 ppc64le 386"
+          edit_arr="normal lite"
+          [ -n "${{ github.event.inputs.edition }}" ] && edit_arr="${{ github.event.inputs.edition }}"
+          [ -n "${{ github.event.inputs.arch }}" ] && all_arch="${{ github.event.inputs.arch }}"
+          mkdir -p qpkg-output release_batch
+          cp -r qpkg-template release_batch/
+          for arch in $all_arch; do
+            for edit in $edit_arr; do
+              if [ "$edit" = "normal" ]; then
+                pkg="openlist-linux-${arch}.tar.gz"
+              else
+                pkg="openlist-linux-${arch}-lite.tar.gz"
+              fi
+              QPKGDIR="openlist-${ver}-${arch}-${edit}"
+              mkdir -p "$QPKGDIR/share/openlist"
+              tar -xf "binpkg/$pkg" -C "$QPKGDIR/share/openlist"
+              cat > "$QPKGDIR/package.rst" <<EOF
+[qpkg]
+Name = OpenList
+Display_Name = OpenList
+Version = $ver
+Author = openlistteam
+Main_Icon = package_icon.png
+[Scripts]
+Build = openlist.sh
+EOF
+              # 自动选择logo最大分辨率
+              if [ -f qpkg-template/logo/openlist_512.png ]; then
+                cp qpkg-template/logo/openlist_512.png "$QPKGDIR/package_icon.png"
+              elif [ -f qpkg-template/logo/openlist_256.png ]; then
+                cp qpkg-template/logo/openlist_256.png "$QPKGDIR/package_icon.png"
+              elif [ -f qpkg-template/logo/openlist_128.png ]; then
+                cp qpkg-template/logo/openlist_128.png "$QPKGDIR/package_icon.png"
+              else
+                touch "$QPKGDIR/package_icon.png"
+              fi
+              cp qpkg-template/openlist.sh "$QPKGDIR/"
+              chmod +x "$QPKGDIR/openlist.sh"
+              tar -czf "qpkg-output/${QPKGDIR}.qpkg.tar.gz" -C "$QPKGDIR" .
+              mkdir -p release_batch/$QPKGDIR
+              cp -r "$QPKGDIR"/* release_batch/$QPKGDIR/
+              cp "qpkg-output/${QPKGDIR}.qpkg.tar.gz" release_batch/
+              rm -rf "$QPKGDIR"
+            done
+          done
+
+      - name: 处理分支/Tag/提交
+        run: |
+          set -e
+          ver="${{ steps.getver.outputs.ver }}"
+          branch="release/$ver"
+          tag="$ver"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git checkout --orphan $branch
+          git rm -rf .
+          mv release_batch/* .
+          git add .
+          git commit -m "release $ver QPKG and config"
+          git push origin $branch --force
+          git tag -d $tag || true
+          git push origin :refs/tags/$tag || true
+          git tag $tag
+          git push origin $tag --force
+
+      - name: 发布Release并上传QPKG产物
+        run: |
+          set -e
+          ver="${{ steps.getver.outputs.ver }}"
+          gh release create "$ver" ./qpkg-output/*.qpkg.tar.gz \
+            --repo ${{ github.repository }} \
+            --title "${ver} QNAP QPKG" \
+            --notes "自动产出OpenList QPKG，包括全部配置和脚本。"
