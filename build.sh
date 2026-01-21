@@ -6,6 +6,10 @@ set -euo pipefail
 
 repo="openlistteam/openlist"
 release_base="https://github.com/$repo/releases/download"
+auth_header=()
+if [[ -n "${GH_TOKEN:-}" ]]; then
+  auth_header=(--header "Authorization: token $GH_TOKEN")
+fi
 
 conf_file="build_conf"
 
@@ -30,7 +34,7 @@ fi
 
 if [[ "$ver" == "latest" ]]; then
   api_base="https://api.github.com/repos/$repo"
-  ver=$(wget -qO- "$api_base/releases/latest" | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)
+  ver=$(wget -qO- "${auth_header[@]}" "$api_base/releases/latest" | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)
   if [[ -z "$ver" ]]; then
     echo "无法获取 OpenList 最新版本"
     exit 1
@@ -56,8 +60,8 @@ wget -q -O qpkg-template/logo/openlist_256.png https://github.com/OpenListTeam/O
 wget -q -O qpkg-template/logo/openlist_128.png https://github.com/OpenListTeam/OpenList-Resource/raw/main/logo/openlist_128.png || true
 
 mkdir -p binpkg
-wget -q -O md5.txt "$release_base/$ver/md5.txt"
-wget -q -O md5-lite.txt "$release_base/$ver/md5-lite.txt"
+wget -q "${auth_header[@]}" -O md5.txt "$release_base/$ver/md5.txt"
+wget -q "${auth_header[@]}" -O md5-lite.txt "$release_base/$ver/md5-lite.txt"
 
 for arch in $all_arch; do
   for edit in $edit_arr; do
@@ -69,7 +73,7 @@ for arch in $all_arch; do
       mdfile="md5-lite.txt"
     fi
 
-    wget -q -O "binpkg/$pkg" "$release_base/$ver/$pkg"
+    wget -q "${auth_header[@]}" -O "binpkg/$pkg" "$release_base/$ver/$pkg"
     md5_infile=$(grep "$pkg" "$mdfile" | awk '{print $1}')
     md5_calc=$(md5sum "binpkg/$pkg" | awk '{print $1}')
     if [[ "$md5_infile" != "$md5_calc" ]]; then

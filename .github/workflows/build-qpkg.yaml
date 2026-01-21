@@ -79,12 +79,23 @@ jobs:
           ver=$(grep -E '^VERSION=' build_conf | head -n 1 | cut -d= -f2-)
           repo="${{ github.repository }}"
           api="https://api.github.com/repos/$repo"
-          auth_header="Authorization: token $GH_TOKEN"
-          release_json=$(wget -qO- --header="$auth_header" "$api/releases/tags/$ver" || true)
+          auth_header=""
+          if [ -n "$GH_TOKEN" ]; then
+            auth_header="Authorization: token $GH_TOKEN"
+          fi
+          if [ -n "$auth_header" ]; then
+            release_json=$(wget -qO- --header="$auth_header" "$api/releases/tags/$ver" || true)
+          else
+            release_json=$(wget -qO- "$api/releases/tags/$ver" || true)
+          fi
           release_id=$(echo "$release_json" | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*\([0-9]*\).*/\1/p' | head -n 1)
           if [ -z "$release_id" ]; then
             body=$(printf '{"tag_name":"%s","name":"%s QNAP QPKG","body":"自动产出OpenList QPKG，包括全部配置和脚本。","draft":false,"prerelease":false}' "$ver" "$ver")
-            release_json=$(wget -qO- --header="$auth_header" --header="Content-Type: application/json" --method=POST --body-data="$body" "$api/releases")
+            if [ -n "$auth_header" ]; then
+              release_json=$(wget -qO- --header="$auth_header" --header="Content-Type: application/json" --method=POST --body-data="$body" "$api/releases")
+            else
+              release_json=$(wget -qO- --header="Content-Type: application/json" --method=POST --body-data="$body" "$api/releases")
+            fi
             release_id=$(echo "$release_json" | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*\([0-9]*\).*/\1/p' | head -n 1)
           fi
           if [ -z "$release_id" ]; then
@@ -93,7 +104,13 @@ jobs:
           fi
           for f in out/qpkg-output/*.qpkg.tar.gz; do
             name=$(basename "$f")
-            wget -q --header="$auth_header" --header="Content-Type: application/gzip" \
-              --method=POST --body-file="$f" \
-              "https://uploads.github.com/repos/$repo/releases/$release_id/assets?name=$name" || true
+            if [ -n "$auth_header" ]; then
+              wget -q --header="$auth_header" --header="Content-Type: application/gzip" \
+                --method=POST --body-file="$f" \
+                "https://uploads.github.com/repos/$repo/releases/$release_id/assets?name=$name" || true
+            else
+              wget -q --header="Content-Type: application/gzip" \
+                --method=POST --body-file="$f" \
+                "https://uploads.github.com/repos/$repo/releases/$release_id/assets?name=$name" || true
+            fi
           done
