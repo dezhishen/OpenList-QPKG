@@ -1,4 +1,4 @@
-name: Build OpenList QPKG with Tag and Release and Multi-Resolution Logo
+name: Build OpenList QPKG
 
 on:
   workflow_dispatch:
