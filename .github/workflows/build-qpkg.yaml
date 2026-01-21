@@ -135,6 +135,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git checkout --orphan $branch
           git rm -rf .
+          git clean -fdx
           mv release_batch/* .
           git add .
           git commit -m "release $ver QPKG and config"
