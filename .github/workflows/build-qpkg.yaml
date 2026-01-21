@@ -99,16 +99,7 @@ jobs:
               QPKGDIR="openlist-${ver}-${arch}-${edit}"
               mkdir -p "$QPKGDIR/share/openlist"
               tar -xf "binpkg/$pkg" -C "$QPKGDIR/share/openlist"
-              cat > "$QPKGDIR/package.rst" <<EOF
-[qpkg]
-Name = OpenList
-Display_Name = OpenList
-Version = $ver
-Author = openlistteam
-Main_Icon = package_icon.png
-[Scripts]
-Build = openlist.sh
-EOF
+              sed "s/__VERSION__/$ver/g" qpkg-template/package.rst > "$QPKGDIR/package.rst"
               # 自动选择logo最大分辨率
               if [ -f qpkg-template/logo/openlist_512.png ]; then
                 cp qpkg-template/logo/openlist_512.png "$QPKGDIR/package_icon.png"
